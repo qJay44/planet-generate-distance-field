@@ -1,0 +1,27 @@
+#version 460 core
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout(r8, binding = 0) uniform image2DArray image;
+
+uniform uvec2 passOffset; // Vertical or horizontal generating
+uniform float iterationScale;
+
+ivec2 texSize = imageSize(image).xy;
+
+float texture2DArray(ivec2 texCoord) {
+  texCoord = (texCoord + texSize) % texSize;
+  return imageLoad(image, ivec3(texCoord, gl_GlobalInvocationID.z)).r;
+}
+
+void main() {
+  ivec2 texCoord = ivec2(gl_GlobalInvocationID.xy);
+
+  float color = texture2DArray(texCoord);
+  float colorNeighbourA = texture2DArray(texCoord + ivec2(passOffset));
+  float colorNeighbourB = texture2DArray(texCoord - ivec2(passOffset));
+
+  color = min(colorNeighbourA, colorNeighbourB) + iterationScale;
+
+  imageStore(image, ivec3(texCoord, gl_GlobalInvocationID.z), vec4(vec3(color), 1.f));
+}
+
