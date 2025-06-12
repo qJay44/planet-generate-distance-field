@@ -1,27 +1,34 @@
 #version 460 core
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-layout(r8, binding = 0) uniform image2DArray image;
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(r8ui, binding = 0) readonly  uniform uimage2DArray imageRead;
+layout(r8ui, binding = 1) writeonly uniform uimage2DArray imageWrite;
+
+layout(std430, binding = 2) buffer ChangeFlag {
+  uint changed;
+};
 
 uniform uvec2 passOffset; // Vertical or horizontal generating
-uniform float iterationScale;
-
-ivec2 texSize = imageSize(image).xy;
-
-float texture2DArray(ivec2 texCoord) {
-  texCoord = (texCoord + texSize) % texSize;
-  return imageLoad(image, ivec3(texCoord, gl_GlobalInvocationID.z)).r;
-}
+uniform uint beta;
 
 void main() {
-  ivec2 texCoord = ivec2(gl_GlobalInvocationID.xy);
+  ivec3 texCoord = ivec3(gl_GlobalInvocationID);
 
-  float color = texture2DArray(texCoord);
-  float colorNeighbourA = texture2DArray(texCoord + ivec2(passOffset));
-  float colorNeighbourB = texture2DArray(texCoord - ivec2(passOffset));
+  uint color = imageLoad(imageRead, texCoord).r;
+  uint colorNeighbourA = imageLoad(imageRead, texCoord + ivec3(passOffset, 0)).r;
+  uint colorNeighbourB = imageLoad(imageRead, texCoord - ivec3(passOffset, 0)).r;
 
-  color = min(colorNeighbourA, colorNeighbourB) + iterationScale;
+  colorNeighbourA += beta;
+  colorNeighbourB += beta;
 
-  imageStore(image, ivec3(texCoord, gl_GlobalInvocationID.z), vec4(vec3(color), 1.f));
+  uint newColor = min(min(color, colorNeighbourA), colorNeighbourB);
+
+  if (newColor < color)
+    atomicOr(changed, 1);
+  else
+    newColor = color;
+
+  imageStore(imageWrite, texCoord, uvec4(uvec3(newColor), 255));
 }
 

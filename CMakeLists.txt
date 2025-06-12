@@ -21,8 +21,19 @@ add_custom_command(
   DEPENDS ${GLAD_PATH}/Build/Release/${GLAD_LIB_FILE}
 )
 
+# Using mannually built libtiff (copying dll)
+set(LIBTIFF_LIB_FILE libtiff.dll)
+add_custom_command(
+  OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${LIBTIFF_LIB_FILE}
+  COMMAND ${CMAKE_COMMAND} -E copy
+    ${LIBTIFF_PATH}/bin/${LIBTIFF_LIB_FILE}
+    ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${LIBTIFF_LIB_FILE}
+  DEPENDS ${LIBTIFF_PATH}/bin/${LIBTIFF_LIB_FILE}
+)
+
 add_executable(${PROJECT_NAME}
   ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${GLAD_LIB_FILE}
+  ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${LIBTIFF_LIB_FILE}
   ${SOURCES})
 
 target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Werror)
@@ -35,6 +46,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   ${GLFW_PATH}/include
   ${GLM_PATH}/include
   ${GENERAL_INCLUDES}/stb
+  ${LIBTIFF_PATH}/include
 )
 
 target_link_directories(${PROJECT_NAME} PUBLIC
@@ -42,7 +54,8 @@ target_link_directories(${PROJECT_NAME} PUBLIC
   ${GLM_PATH}/lib
   ${GLFW_PATH}/lib-mingw-w64
   ${GLAD_PATH}/Build/Release
+  ${LIBTIFF_PATH}/lib
 )
 
-target_link_libraries(${PROJECT_NAME} glfw3 glm libGLAD)
+target_link_libraries(${PROJECT_NAME} glfw3 glm libGLAD libtiff)
 
