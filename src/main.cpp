@@ -1,4 +1,4 @@
-// https://stackoverflow.com/a/29681646/17694832
+// NOTE: The result images just containing square distances intergers (cant be visuallized directly)
 
 #include "pch.hpp"
 #include <cassert>
@@ -18,8 +18,16 @@
 #define HEIGHT 10u
 
 // #define DO_MASK
-// #define DO_R16UI
+#define DO_R16UI
 // #define DO_DUMMY
+
+void save(
+  const uvec2& texSize,
+  const fspath& outputDirPath,
+  const GLuint& tex,
+  const GLuint& pixelsType,
+  const size_t& iterations
+);
 
 int main() {
   // Assuming the executable is launching from its own directory
@@ -218,36 +226,57 @@ int main() {
   glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(GLuint), nullptr, GL_DYNAMIC_COPY);
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, changeFlagBuffer); // binding point 2
 
-  for (size_t i = 0; i < 2; i++) {
-    if (i) {
-      puts("Generating horizontal");
-      mainShader.setUniform2ui("passOffset", {1, 0});
-    } else {
-      puts("Generating vertical");
-      mainShader.setUniform2ui("passOffset", {0, 1});
+  for (size_t i = 0; i < 40; i++) {
+    for (size_t j = 0; j < 2; j++) {
+      if (j)
+        mainShader.setUniform2ui("passOffset", {1, 0});
+      else
+        mainShader.setUniform2ui("passOffset", {0, 1});
+
+      GLuint changed = 1;
+      for (size_t k = 0; changed && k < antiInfinityLoop; k++) {
+        GLuint zero = 0;
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, changeFlagBuffer);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(GLuint), &zero);
+
+        bool swapped = k & 1;
+        glBindImageTexture(swapped, texDistField0, 0, GL_TRUE, 0, GL_READ_ONLY, internalFormat);
+        glBindImageTexture(1 - swapped, texDistField1, 0, GL_TRUE, 0, GL_WRITE_ONLY, internalFormat);
+
+        printf("%s", std::format("i: {}, j: {}, k: {}\r", i, j, k).c_str());
+        mainShader.setUniform1ui("beta", k * 2 + 1);
+        glDispatchCompute(numGroups.x, numGroups.y, 2);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, changeFlagBuffer);
+        glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(GLuint), &changed);
+      }
     }
 
-    GLuint changed = 1;
-    for (size_t k = 0; changed && k < antiInfinityLoop; k++) {
-      GLuint zero = 0;
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, changeFlagBuffer);
-      glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(GLuint), &zero);
-
-      bool swapped = k & 1;
-      glBindImageTexture(swapped, texDistField0, 0, GL_TRUE, 0, GL_READ_ONLY, internalFormat);
-      glBindImageTexture(1 - swapped, texDistField1, 0, GL_TRUE, 0, GL_WRITE_ONLY, internalFormat);
-
-      printf("%s", std::format("iteration: {}\r", k).c_str());
-      mainShader.setUniform1ui("beta", k * 2 + 1);
-      glDispatchCompute(numGroups.x, numGroups.y, 2);
-      glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-      glBindBuffer(GL_SHADER_STORAGE_BUFFER, changeFlagBuffer);
-      glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(GLuint), &changed);
-    }
+    if ((i + 1) % 10 == 0)
+      save(texSize, outputDirPath, texDistField0, pixelsType, i + 1);
   }
   puts("");
 
+  GLenum error = glGetError();
+  if (error != GL_NO_ERROR) {
+    printf("GL error detected, type 0x%x\n", error);
+    exit(1);
+  }
+
+  glfwTerminate();
+  puts("Done");
+
+  return 0;
+}
+
+void save(
+  const uvec2& texSize,
+  const fspath& outputDirPath,
+  const GLuint& tex,
+  const GLuint& pixelsType,
+  const size_t& iterations
+) {
   system(std::format("mkdir {}", outputDirPath.string()).c_str());
 
   #ifdef DO_R16UI
@@ -261,8 +290,8 @@ int main() {
   #endif
 
   for (size_t i = 0; i < 2; i++) {
-    fspath outputFilePath = outputDirPath / std::format("distanceFieldWater21600_{}.{}", i, extension);
-    glGetTextureSubImage(texDistField0, 0, 0, 0, i, texSize.x, texSize.y, 1, GL_RED_INTEGER, pixelsType, bufSize, pixels);
+    fspath outputFilePath = outputDirPath / std::format("distanceFieldWater21600_{}_{}.{}", i, iterations, extension);
+    glGetTextureSubImage(tex, 0, 0, 0, i, texSize.x, texSize.y, 1, GL_RED_INTEGER, pixelsType, bufSize, pixels);
 
     #ifdef DO_R16UI
       saveTif_R16UI(outputFilePath.string().c_str(), texSize.x, texSize.y, pixels);
@@ -274,17 +303,6 @@ int main() {
 
   #endif
 
-  GLenum error = glGetError();
-  if (error != GL_NO_ERROR) {
-    printf("GL error detected, type 0x%x\n", error);
-    exit(1);
-  }
-
   delete[] pixels;
-
-  glfwTerminate();
-  puts("Done");
-
-  return 0;
 }
 
