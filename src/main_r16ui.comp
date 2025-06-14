@@ -33,20 +33,17 @@ void main() {
   }
 
 
-  uint color = imageLoad(imageRead, texCoord).r;
-  uint colorNeighbourA = imageLoad(imageRead, texCoordA).r;
-  uint colorNeighbourB = imageLoad(imageRead, texCoordB).r;
+  uint sqDist = imageLoad(imageRead, texCoord).r;
+  uint sqDistNeighbourA = imageLoad(imageRead, texCoordA).r;
+  uint sqDistNeighbourB = imageLoad(imageRead, texCoordB).r;
 
-  colorNeighbourA += beta;
-  colorNeighbourB += beta;
+  uint newSqDist = min(sqDistNeighbourA, sqDistNeighbourB) + beta;
 
-  uint newColor = min(min(color, colorNeighbourA), colorNeighbourB);
-
-  if (newColor < color)
+  if (newSqDist < sqDist)
     atomicOr(changed, 1);
   else
-    newColor = color;
+    newSqDist = sqDist;
 
-  imageStore(imageWrite, texCoord, uvec4(uvec3(newColor), 65535));
+  imageStore(imageWrite, texCoord, uvec4(uvec3(newSqDist), 65535));
 }
 

@@ -153,14 +153,12 @@ int main() {
     pixelsDiffuse1 = temp1;
 
     constexpr GLuint pixelsType = GL_UNSIGNED_SHORT;
-    constexpr float betaMaxValue = 65535.f;
     constexpr GLenum internalFormat = GL_R16UI;
 
     mainShader = Shader("main_r16ui.comp");
 
   #else
     constexpr GLuint pixelsType = GL_UNSIGNED_BYTE;
-    constexpr float betaMaxValue = 255.f;
     constexpr GLenum internalFormat = GL_R8UI;
 
   #endif
@@ -221,19 +219,15 @@ int main() {
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, changeFlagBuffer); // binding point 2
 
   for (size_t i = 0; i < 2; i++) {
-    float betaStep;
     if (i) {
       puts("Generating horizontal");
       mainShader.setUniform2ui("passOffset", {1, 0});
-      betaStep = betaMaxValue / (texSize.x * 2.f);
     } else {
       puts("Generating vertical");
       mainShader.setUniform2ui("passOffset", {0, 1});
-      betaStep = betaMaxValue / texSize.y;
     }
 
     GLuint changed = 1;
-    float beta = 1.f;
     for (size_t k = 0; changed && k < antiInfinityLoop; k++) {
       GLuint zero = 0;
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, changeFlagBuffer);
@@ -244,13 +238,12 @@ int main() {
       glBindImageTexture(1 - swapped, texDistField1, 0, GL_TRUE, 0, GL_WRITE_ONLY, internalFormat);
 
       printf("%s", std::format("iteration: {}\r", k).c_str());
-      mainShader.setUniform1ui("beta", (GLuint)beta);
+      mainShader.setUniform1ui("beta", k * 2 + 1);
       glDispatchCompute(numGroups.x, numGroups.y, 2);
       glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, changeFlagBuffer);
       glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(GLuint), &changed);
-      beta += betaStep;
     }
   }
   puts("");
