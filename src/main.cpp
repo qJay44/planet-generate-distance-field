@@ -12,12 +12,14 @@
 #include "stb_image_write.h"
 
 #include "ComputeShader.hpp"
-#include "tiffio.h"
+#include "utils.hpp"
 
 #define WIDTH 10u
 #define HEIGHT 10u
 
-void writeTif_R16UI(const char* fileName, const int& width, const int& height, const u16* pixels);
+// #define DO_MASK
+// #define DO_R16UI
+// #define DO_DUMMY
 
 int main() {
   // Assuming the executable is launching from its own directory
@@ -46,26 +48,31 @@ int main() {
 
   glViewport(0, 0, WIDTH, HEIGHT);
 
-  Shader mainShader("main.comp");
-  mainShader.setUniformTexture("diffuse", 1);
+  Shader mainShader("main_r8ui.comp");
 
   stbi_set_flip_vertically_on_load(false);
   stbi_flip_vertically_on_write(false);
 
-  ivec2 texSize;
-  int channels;
-  byte* pixelsDiffuse0 = nullptr;
-  byte* pixelsDiffuse1 = nullptr;
-
-  // #define DO_MASK
+  uvec2 texSize;
+  u16 channels;
+  void* pixelsDiffuse0 = nullptr;
+  void* pixelsDiffuse1 = nullptr;
 
   #ifdef DO_MASK
 
   Shader maskShader("mask.comp");
-  maskShader.setUniformTexture("diffuse", 1);
+  maskShader.setUniformTextureInt("diffuse", 1);
+  // u16 tifDepth, tifSampleFormat;
 
-  pixelsDiffuse0 = stbi_load("pre_mask0.png", &texSize.x, &texSize.y, &channels, 0);
-  pixelsDiffuse1 = stbi_load("pre_mask1.png", &texSize.x, &texSize.y, &channels, 0);
+  {
+    int w, h, c;
+    pixelsDiffuse0 = stbi_load("pre_mask0.png", &w, &h, &c, 0);
+    pixelsDiffuse1 = stbi_load("pre_mask1.png", &w, &h, &c, 0);
+    texSize = {w, h};
+    channels = c;
+  }
+  // pixelsDiffuse0 = loadTif("bathymetry0.tif", texSize.x, texSize.y, channels, tifDepth, tifSampleFormat);
+  // pixelsDiffuse1 = loadTif("bathymetry1.tif", texSize.x, texSize.y, channels, tifDepth, tifSampleFormat);
 
   if (pixelsDiffuse0 == nullptr) {
     printf("stbi can't open [%s]\n", "pre_mask0.png");
@@ -90,9 +97,9 @@ int main() {
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_R8, texSize.x, texSize.y, 2);
-  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, texSize.x, texSize.y, 1, GL_RED, GL_UNSIGNED_BYTE, pixelsDiffuse0);
-  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 1, texSize.x, texSize.y, 1, GL_RED, GL_UNSIGNED_BYTE, pixelsDiffuse1);
+  glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_R16I, texSize.x, texSize.y, 2);
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, texSize.x, texSize.y, 1, GL_RED_INTEGER, GL_SHORT, pixelsDiffuse0);
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 1, texSize.x, texSize.y, 1, GL_RED_INTEGER, GL_SHORT, pixelsDiffuse1);
 
   GLuint texMask;
   glGenTextures(1, &texMask);
@@ -117,12 +124,46 @@ int main() {
 
   #else
 
-  const char* westFile = "mask0.png";
-  const char* eastFile = "mask1.png";
-  fspath outputDirPath = "output";
+  #ifdef DO_DUMMY
+    const char* westFile = "dummyMask0.png";
+    const char* eastFile = "dummyMask1.png";
+  #else
+    const char* westFile = "mask0.png";
+    const char* eastFile = "mask1.png";
+  #endif
 
-  pixelsDiffuse0 = stbi_load(westFile, &texSize.x, &texSize.y, &channels, 0);
-  pixelsDiffuse1 = stbi_load(eastFile, &texSize.x, &texSize.y, &channels, 0);
+  const fspath outputDirPath = "output";
+
+  {
+    int w, h, c;
+    pixelsDiffuse0 = stbi_load(westFile, &w, &h, &c, 0);
+    pixelsDiffuse1 = stbi_load(eastFile, &w, &h, &c, 0);
+    texSize = {w, h};
+    channels = c;
+  }
+
+  #ifdef DO_R16UI
+    u16* temp0 = new u16[texSize.x * texSize.y];
+    u16* temp1 = new u16[texSize.x * texSize.y];
+    scaleU8toU16((byte*)pixelsDiffuse0, temp0, texSize.x * texSize.y);
+    scaleU8toU16((byte*)pixelsDiffuse1, temp1, texSize.x * texSize.y);
+    stbi_image_free(pixelsDiffuse0);
+    stbi_image_free(pixelsDiffuse1);
+    pixelsDiffuse0 = temp0;
+    pixelsDiffuse1 = temp1;
+
+    constexpr GLuint pixelsType = GL_UNSIGNED_SHORT;
+    constexpr float betaMaxValue = 65535.f;
+    constexpr GLenum internalFormat = GL_R16UI;
+
+    mainShader = Shader("main_r16ui.comp");
+
+  #else
+    constexpr GLuint pixelsType = GL_UNSIGNED_BYTE;
+    constexpr float betaMaxValue = 255.f;
+    constexpr GLenum internalFormat = GL_R8UI;
+
+  #endif
 
   if (pixelsDiffuse0 == nullptr) {
     printf("stbi can't open [%s]\n", westFile);
@@ -139,9 +180,8 @@ int main() {
     exit(1);
   }
 
-  constexpr size_t antiInfinityLoop = 500u;
-  constexpr GLenum internalFormat = GL_R8UI;
-  constexpr uvec2 localSize{16, 16};
+  constexpr size_t antiInfinityLoop = 1e4;
+  constexpr uvec2 localSize(8u);
   const uvec2 numGroups = (uvec2(texSize) + localSize - 1u) / localSize;
 
   GLuint texDistField0;
@@ -153,8 +193,16 @@ int main() {
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, internalFormat, texSize.x, texSize.y, 2);
-  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, texSize.x, texSize.y, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixelsDiffuse0);
-  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 1, texSize.x, texSize.y, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixelsDiffuse1);
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, texSize.x, texSize.y, 1, GL_RED_INTEGER, pixelsType, pixelsDiffuse0);
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 1, texSize.x, texSize.y, 1, GL_RED_INTEGER, pixelsType, pixelsDiffuse1);
+
+  #ifdef DO_R16UI
+    delete[] (u16*)pixelsDiffuse0;
+    delete[] (u16*)pixelsDiffuse1;
+  #else
+    stbi_image_free(pixelsDiffuse0);
+    stbi_image_free(pixelsDiffuse1);
+  #endif
 
   GLuint texDistField1;
   glGenTextures(1, &texDistField1);
@@ -173,43 +221,62 @@ int main() {
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, changeFlagBuffer); // binding point 2
 
   for (size_t i = 0; i < 2; i++) {
+    float betaStep;
     if (i) {
       puts("Generating horizontal");
       mainShader.setUniform2ui("passOffset", {1, 0});
+      betaStep = betaMaxValue / (texSize.x * 2.f);
     } else {
       puts("Generating vertical");
       mainShader.setUniform2ui("passOffset", {0, 1});
+      betaStep = betaMaxValue / texSize.y;
     }
 
     GLuint changed = 1;
-    for (size_t j = 0; changed && j < antiInfinityLoop; j++) {
+    float beta = 1.f;
+    for (size_t k = 0; changed && k < antiInfinityLoop; k++) {
       GLuint zero = 0;
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, changeFlagBuffer);
       glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(GLuint), &zero);
 
-      bool swapped = j & 1;
+      bool swapped = k & 1;
       glBindImageTexture(swapped, texDistField0, 0, GL_TRUE, 0, GL_READ_ONLY, internalFormat);
       glBindImageTexture(1 - swapped, texDistField1, 0, GL_TRUE, 0, GL_WRITE_ONLY, internalFormat);
 
-      printf("%s", std::format("iteration: {}\r", j).c_str());
-      mainShader.setUniform1ui("beta", 1);
+      printf("%s", std::format("iteration: {}\r", k).c_str());
+      mainShader.setUniform1ui("beta", (GLuint)beta);
       glDispatchCompute(numGroups.x, numGroups.y, 2);
       glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, changeFlagBuffer);
       glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(GLuint), &changed);
+      beta += betaStep;
     }
   }
   puts("");
 
   system(std::format("mkdir {}", outputDirPath.string()).c_str());
 
-  byte* pixels = new byte[texSize.x * texSize.y];
+  #ifdef DO_R16UI
+    const size_t bufSize = texSize.x * texSize.y * sizeof(u16);
+    u16* pixels = new u16[texSize.x * texSize.y];
+    std::string extension= "tif";
+  #else
+    const size_t bufSize = texSize.x * texSize.y * sizeof(byte);
+    byte* pixels = new byte[texSize.x * texSize.y];
+    std::string extension= "png";
+  #endif
+
   for (size_t i = 0; i < 2; i++) {
-    fspath output = outputDirPath / std::format("distanceFieldWater21600_{}.png", i);
-    glGetTextureSubImage(texDistField0, 0, 0, 0, i, texSize.x, texSize.y, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, texSize.x * texSize.y, pixels);
-    if (!stbi_write_png(output.string().c_str(), texSize.x, texSize.y, 1, pixels, texSize.x))
-      puts("stbi write returned 0");
+    fspath outputFilePath = outputDirPath / std::format("distanceFieldWater21600_{}.{}", i, extension);
+    glGetTextureSubImage(texDistField0, 0, 0, 0, i, texSize.x, texSize.y, 1, GL_RED_INTEGER, pixelsType, bufSize, pixels);
+
+    #ifdef DO_R16UI
+      saveTif_R16UI(outputFilePath.string().c_str(), texSize.x, texSize.y, pixels);
+    #else
+      if (!stbi_write_png(outputFilePath.string().c_str(), texSize.x, texSize.y, 1, pixels, texSize.x))
+        puts("stbi write returned 0");
+    #endif
   }
 
   #endif
@@ -220,34 +287,11 @@ int main() {
     exit(1);
   }
 
-  stbi_image_free(pixelsDiffuse0);
-  stbi_image_free(pixelsDiffuse1);
   delete[] pixels;
 
   glfwTerminate();
   puts("Done");
 
   return 0;
-}
-
-void writeTif_R16UI(const char* fileName, const int& width, const int& height, const u16* pixels) {
-  TIFF* tif = TIFFOpen(fileName, "w");
-  if (!tif) {
-    printf("Tif can't write to [%s]\n", fileName);
-    exit(1);
-  }
-
-  TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, width);
-  TIFFSetField(tif, TIFFTAG_IMAGELENGTH, height);
-  TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 16);
-  TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 1);
-  TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
-  // TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
-  TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
-
-  for (int row = 0; row < height; ++row)
-    TIFFWriteScanline(tif, (void*)&pixels[row * width], row, 0);
-
-  TIFFClose(tif);
 }
 

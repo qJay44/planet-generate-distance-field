@@ -93,6 +93,11 @@ Shader::Shader(const fspath& path) {
 
 void Shader::use() const { glUseProgram(program); }
 
+void Shader::setUniform1i(const std::string& name, const GLint& val) const {
+  use();
+  glUniform1i(glGetUniformLocation(program, name.c_str()), val);
+}
+
 void Shader::setUniform1ui(const std::string& name, const GLuint& val) const {
   use();
   glUniform1ui(glGetUniformLocation(program, name.c_str()), val);
@@ -113,4 +118,5 @@ void Shader::setUniform3f(const std::string& name, const vec3& v) const {
   glUniform3f(glGetUniformLocation(program, name.c_str()), v.x, v.y, v.z);
 }
 
-void Shader::setUniformTexture(const std::string& name, const GLuint& unit) const { setUniform1ui(name, unit); }
+void Shader::setUniformTextureUInt(const std::string& name, const GLuint& unit) const { setUniform1ui(name, unit); }
+void Shader::setUniformTextureInt(const std::string& name, const GLint& unit) const { setUniform1i(name, unit); }

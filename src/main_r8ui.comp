@@ -1,0 +1,51 @@
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(r8ui, binding = 0) readonly  uniform uimage2DArray imageRead;
+layout(r8ui, binding = 1) writeonly uniform uimage2DArray imageWrite;
+
+layout(std430, binding = 2) buffer ChangeFlag {
+  uint changed;
+};
+
+uniform uvec2 passOffset; // Vertical or horizontal generating
+uniform uint beta;
+
+void main() {
+  const ivec3 texCoord = ivec3(gl_GlobalInvocationID);
+  const ivec2 texSize = imageSize(imageRead).xy;
+
+  ivec3 texCoordA = texCoord + ivec3(passOffset, 0);
+  ivec3 texCoordB = texCoord - ivec3(passOffset, 0);
+
+  texCoordA.y = clamp(texCoordA.y, 0, texSize.y - 1);
+  texCoordB.y = clamp(texCoordB.y, 0, texSize.y - 1);
+
+  if (texCoordA.x >= texSize.x) {
+    texCoordA.x = 0;
+    texCoordA.z = 1 - texCoord.z;
+  }
+
+  if (texCoordB.x < 0) {
+    texCoordB.x = texSize.x - 1;
+    texCoordB.x = 1 - texCoord.z;
+  }
+
+  uint color = imageLoad(imageRead, texCoord).r;
+  uint colorNeighbourA = imageLoad(imageRead, texCoordA).r;
+  uint colorNeighbourB = imageLoad(imageRead, texCoordB).r;
+
+  colorNeighbourA += beta;
+  colorNeighbourB += beta;
+
+  uint newColor = min(min(color, colorNeighbourA), colorNeighbourB);
+
+  if (newColor < color)
+    atomicOr(changed, 1);
+  else
+    newColor = color;
+
+  imageStore(imageWrite, texCoord, uvec4(uvec3(newColor), 255));
+}
+

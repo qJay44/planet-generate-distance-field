@@ -2,3 +2,5 @@ Build/
 .cache/
 *.png
 *.tif
+*.jpg
+*.jpeg
