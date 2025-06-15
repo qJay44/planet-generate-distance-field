@@ -1,7 +1,10 @@
 #pragma once
 
+#include "utils/types.hpp"
+
 class Shader {
 public:
+  Shader();
   Shader(const fspath& vert, const fspath& frag, const fspath& geom = "");
   Shader(const fspath& comp);
 

@@ -1,17 +1,9 @@
 #include "ComputeShader.hpp"
 
 #include <format>
-#include <fstream>
-#include <sstream>
 
-std::string readFile(const fspath& path) {
-  std::ifstream ifs(path);
-  std::ostringstream oss;
-  oss << ifs.rdbuf();
-  std::string entireFile = oss.str();
-
-  return entireFile;
-}
+#include "utils/clrp.hpp"
+#include "utils/utils.hpp"
 
 static GLuint load(const fspath& filename, int type) {
   std::string shaderStr = readFile(filename);
@@ -63,6 +55,8 @@ static void link(GLuint program) {
     exit(1);
   }
 }
+
+Shader::Shader() : program(0) {}
 
 Shader::Shader(const fspath& vert, const fspath& frag, const fspath& geom) {
   program = glCreateProgram();
@@ -120,3 +114,4 @@ void Shader::setUniform3f(const std::string& name, const vec3& v) const {
 
 void Shader::setUniformTextureUInt(const std::string& name, const GLuint& unit) const { setUniform1ui(name, unit); }
 void Shader::setUniformTextureInt(const std::string& name, const GLint& unit) const { setUniform1i(name, unit); }
+
