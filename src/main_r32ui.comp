@@ -31,7 +31,7 @@ void main() {
 
   // if (texCoordB.x < 0) {
   //   texCoordB.x = texSize.x - 1;
-  //   texCoordB.x = 1 - texCoord.z;
+  //   texCoordB.z = 1 - texCoord.z;
   // }
 
   // uint sqDist = imageLoad(imageRead, texCoord).r;

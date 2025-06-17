@@ -305,10 +305,10 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
         break;
       }
       case GL_R16UI:
-        saveTif_R16UI(outputFileName.c_str(), texSize.x, texSize.y, (u16*)pixels);
+        saveTif_R16UI(outputFileName.c_str(), texSize.x, texSize.y, (u16*)pixels, true);
         break;
       case GL_R32UI:
-        saveTif_R32UI(outputFileName.c_str(), texSize.x, texSize.y, (u32*)pixels);
+        saveTif_R32UI(outputFileName.c_str(), texSize.x, texSize.y, (u32*)pixels, true);
         break;
     }
     status::end(true);
