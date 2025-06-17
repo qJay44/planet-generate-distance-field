@@ -1,5 +1,6 @@
 #include "generator.hpp"
 
+#include <cmath>
 #include <cstdlib>
 #include <format>
 #include <map>
@@ -9,15 +10,10 @@
 #include "utils/loadTif.hpp"
 #include "utils/saveTif.hpp"
 #include "utils/status.hpp"
-#include "ComputeShader.hpp"
+#include "Shader.hpp"
+#include "image2D.hpp"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
-
-const std::map<std::string, u8> extensionsMap{
+static const std::map<std::string, u8> extensionsMap{
   {".jpeg", 0},
   {".jpg" , 1},
   {".png" , 2},
@@ -67,21 +63,20 @@ void genMask(const fspath &path0, const fspath &path1) {
     shader = Shader("mask_tif.comp");
 
   } else {
-    stbi_set_flip_vertically_on_load(false);
-    stbi_flip_vertically_on_write(false);
+    image2D img0{path0String};
+    image2D img1{path1String};
+    img0.load(false);
+    img1.load(false);
+    if (img0.channels != 1) error("Unexpected number of channels");
+    if (img1.channels != 1) error("Unexpected number of channels");
 
-    int w, h, channels;
-    pixelsDiffuse0 = stbi_load(path0Cstr, &w, &h, &channels, 0);
-    pixelsDiffuse1 = stbi_load(path1Cstr, &w, &h, &channels, 0);
-    texSize = {w, h};
+    pixelsDiffuse0 = img0.pixels;
+    pixelsDiffuse1 = img1.pixels;
+    texSize = {img0.w, img0.h};
     internalFormat = GL_R8;
     format = GL_RED;
     pixelsType = GL_UNSIGNED_BYTE;
     shader = Shader("mask.comp");
-
-    if (pixelsDiffuse0 == nullptr) error("stbi can't open [{}]\n", path0Cstr);
-    if (pixelsDiffuse1 == nullptr) error("stbi can't open [{}]\n", path1Cstr);
-    if (channels != 1)             error("Unexpected number of channels");
   }
 
   shader.setUniformTextureInt("diffuse", 1);
@@ -101,9 +96,6 @@ void genMask(const fspath &path0, const fspath &path1) {
   if (isTif) {
     delete[] (u16*)pixelsDiffuse0;
     delete[] (u16*)pixelsDiffuse1;
-  } else {
-    stbi_image_free(pixelsDiffuse0);
-    stbi_image_free(pixelsDiffuse1);
   }
 
   GLuint texMask;
@@ -125,10 +117,19 @@ void genMask(const fspath &path0, const fspath &path1) {
 
   byte* pixels = new byte[texSize.x * texSize.y];
   for (size_t i = 0; i < 2; i++) {
-    std::string name =std::format("mask{}.png", i);
+    std::string name = std::format("mask{}.png", i);
     status::start("Saving", name);
     glGetTextureSubImage(texMask, 0, 0, 0, i, texSize.x, texSize.y, 1, GL_RED, GL_UNSIGNED_BYTE, texSize.x * texSize.y, pixels);
-    stbi_write_png(name.c_str(), texSize.x, texSize.y, 1, pixels, texSize.x);
+
+    image2D img;
+    img.path = name;
+    img.w = static_cast<int>(texSize.x);
+    img.h = static_cast<int>(texSize.y);
+    img.channels = 1;
+    img.pixels = pixels;
+    img.write(false);
+    delete[] (byte*)img.pixels;
+
     status::end(true);
   }
 }
@@ -136,8 +137,6 @@ void genMask(const fspath &path0, const fspath &path1) {
 void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& internalFormat) {
   const std::string path0String = path0.string();
   const std::string path1String = path1.string();
-  const char* path0Cstr = path0String.c_str();
-  const char* path1Cstr = path1String.c_str();
 
   const std::string ext0 = path0.extension().string();
   const std::string ext1 = path1.extension().string();
@@ -146,25 +145,25 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
     error("The files extension are not the same [{}] and [{}]\n", ext0, ext1);
 
   uvec2 texSize;
-  void* pixelsDiffuse0 = nullptr;
-  void* pixelsDiffuse1 = nullptr;
+  image2D img0(path0String);
+  image2D img1(path1String);
+  img0.load(false);
+  img1.load(false);
+  if (img0.w != img1.w)   error("Images have different width ([{}] and [{}])", img0.w, img1.w);
+  if (img0.h != img1.h)   error("Images have different height ([{}] and [{}])", img0.h, img1.h);
+  if (img0.channels != 1) error("Unexpected number of channels");
+  if (img1.channels != 1) error("Unexpected number of channels");
+  texSize = {img0.w, img0.h};
 
-  {
-    int w, h, channels;
-    pixelsDiffuse0 = stbi_load(path0Cstr, &w, &h, &channels, 0);
-    pixelsDiffuse1 = stbi_load(path1Cstr, &w, &h, &channels, 0);
-    texSize = {w, h};
-
-    if (pixelsDiffuse0 == nullptr) error(std::format("stbi can't open [%s]\n", path0Cstr));
-    if (pixelsDiffuse1 == nullptr) error(std::format("stbi can't open [%s]\n", path1Cstr));
-    if (channels != 1)             error("Unexpected number of channels");
-  }
+  void* pixelsDiffuse0 = img0.pixels;
+  void* pixelsDiffuse1 = img1.pixels;
 
   Shader shader;
   GLuint pixelsType = 0;
   bool isTif = false;
   size_t bufSize = 0;
   void* pixels = nullptr;
+  std::string saveExt;
 
   switch (internalFormat) {
     case GL_R8UI: {
@@ -173,6 +172,7 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
       isTif = false;
       bufSize = texSize.x * texSize.y * sizeof(byte);
       pixels = new byte[texSize.x * texSize.y];
+      saveExt = ".png";
       break;
     }
     case GL_R16UI: {
@@ -180,8 +180,6 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
       u16* temp1 = new u16[texSize.x * texSize.y];
       scaleU8toU16((byte*)pixelsDiffuse0, temp0, texSize.x * texSize.y);
       scaleU8toU16((byte*)pixelsDiffuse1, temp1, texSize.x * texSize.y);
-      stbi_image_free(pixelsDiffuse0);
-      stbi_image_free(pixelsDiffuse1);
 
       pixelsDiffuse0 = temp0;
       pixelsDiffuse1 = temp1;
@@ -190,6 +188,24 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
       isTif = true;
       bufSize = texSize.x * texSize.y * sizeof(u16);
       pixels = new u16[texSize.x * texSize.y];
+      saveExt = ".tif";
+
+      break;
+    }
+    case GL_R32UI: {
+      u32* temp0 = new u32[texSize.x * texSize.y];
+      u32* temp1 = new u32[texSize.x * texSize.y];
+      scaleU8toU32((byte*)pixelsDiffuse0, temp0, texSize.x * texSize.y);
+      scaleU8toU32((byte*)pixelsDiffuse1, temp1, texSize.x * texSize.y);
+
+      pixelsDiffuse0 = temp0;
+      pixelsDiffuse1 = temp1;
+      pixelsType = GL_UNSIGNED_INT;
+      shader = Shader("main_r32ui.comp");
+      isTif = true;
+      bufSize = texSize.x * texSize.y * sizeof(u32);
+      pixels = new u32[texSize.x * texSize.y];
+      saveExt = ".tif";
 
       break;
     }
@@ -197,8 +213,8 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
       error("[genDistanceField] Unexpected format ({})", internalFormat);
   }
 
-  constexpr size_t antiInfinityLoop = 1e4;
-  constexpr uvec2 localSize(8u); // NOTE: Must match in the shader
+  constexpr size_t antiInfinityLoop = 3e3;
+  constexpr uvec2 localSize(16); // NOTE: Must match in the shader
   const uvec2 numGroups = (uvec2(texSize) + localSize - 1u) / localSize;
 
   GLuint texDistField0;
@@ -222,13 +238,20 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, internalFormat, texSize.x, texSize.y, 2);
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, texSize.x, texSize.y, 1, GL_RED_INTEGER, pixelsType, pixelsDiffuse0);
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 1, texSize.x, texSize.y, 1, GL_RED_INTEGER, pixelsType, pixelsDiffuse1);
 
   if (isTif) {
-    delete[] (u16*)pixelsDiffuse0;
-    delete[] (u16*)pixelsDiffuse1;
-  } else {
-    stbi_image_free(pixelsDiffuse0);
-    stbi_image_free(pixelsDiffuse1);
+    switch (internalFormat) {
+      case GL_R16UI:
+        delete[] (u16*)pixelsDiffuse0;
+        delete[] (u16*)pixelsDiffuse1;
+        break;
+      case GL_R32UI:
+        delete[] (u32*)pixelsDiffuse0;
+        delete[] (u32*)pixelsDiffuse1;
+        break;
+    }
   }
 
   GLuint changeFlagBuffer;
@@ -237,6 +260,7 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
   glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(GLuint), nullptr, GL_DYNAMIC_COPY);
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, changeFlagBuffer); // binding point 2
 
+  // Distance field calculation
   for (size_t j = 0; j < 2; j++) {
     if (j)
       shader.setUniform2ui("passOffset", {1, 0});
@@ -253,8 +277,8 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
       glBindImageTexture(swapped, texDistField0, 0, GL_TRUE, 0, GL_READ_ONLY, internalFormat);
       glBindImageTexture(1 - swapped, texDistField1, 0, GL_TRUE, 0, GL_WRITE_ONLY, internalFormat);
 
-      printf("%s", std::format("Processing j: {}, k: {}\r", j, k).c_str());
-      shader.setUniform1ui("beta", k * 2 + 1);
+      printf("%s\r", std::format("Processing j: {}, k: {:>4}", j, k).c_str());
+      shader.setUniform1ui("beta", std::sqrt(k * 2 + 1));
       glDispatchCompute(numGroups.x, numGroups.y, 2);
       glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
@@ -264,26 +288,44 @@ void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& in
   }
   puts("");
 
+  image2D imgWrite;
   for (size_t i = 0; i < 2; i++) {
-    std::string outputFileName = std::format("distanceFieldWater{}_{}{}", (u16)texSize.x * 2, i, ext0);
-
-    status::start("Saving", outputFileName);
+    std::string outputFileName = std::format("distanceFieldWater{}_{}{}", texSize.x * 2, i, saveExt);
+    status::start("Saving to", outputFileName);
     glGetTextureSubImage(texDistField0, 0, 0, 0, i, texSize.x, texSize.y, 1, GL_RED_INTEGER, pixelsType, bufSize, pixels);
-    if (isTif)
-      saveTif_R16UI(outputFileName.c_str(), texSize.x, texSize.y, (u16*)pixels);
-    else
-      if (!stbi_write_png(outputFileName.c_str(), texSize.x, texSize.y, 1, pixels, texSize.x)) {
-        status::end(false);
-        error("stbi write returned 0");
-      }
 
+    switch (internalFormat) {
+      case GL_R8UI: {
+        imgWrite.path = outputFileName;
+        imgWrite.w = static_cast<int>(texSize.x);
+        imgWrite.h = static_cast<int>(texSize.y);
+        imgWrite.channels = 1;
+        imgWrite.pixels = pixels;
+        imgWrite.write(false);
+        break;
+      }
+      case GL_R16UI:
+        saveTif_R16UI(outputFileName.c_str(), texSize.x, texSize.y, (u16*)pixels);
+        break;
+      case GL_R32UI:
+        saveTif_R32UI(outputFileName.c_str(), texSize.x, texSize.y, (u32*)pixels);
+        break;
+    }
     status::end(true);
   }
 
-  if (isTif)
-    delete[] (u16*)pixels;
-  else
-    stbi_image_free(pixels);
+  switch (internalFormat) {
+    case GL_R8UI:
+      delete[] (byte*)imgWrite.pixels;
+      imgWrite.pixels = nullptr;
+      break;
+    case GL_R16UI:
+      delete[] (u16*)pixels;
+      break;
+    case GL_R32UI:
+      delete[] (u32*)pixels;
+      break;
+  }
 }
 
 } // namespace generator

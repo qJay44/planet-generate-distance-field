@@ -1,9 +1,10 @@
-#include "ComputeShader.hpp"
+#include "Shader.hpp"
 
 #include <format>
 
 #include "utils/clrp.hpp"
 #include "utils/utils.hpp"
+#include "glm/gtc/type_ptr.hpp"
 
 static GLuint load(const fspath& filename, int type) {
   std::string shaderStr = readFile(filename);
@@ -87,6 +88,11 @@ Shader::Shader(const fspath& path) {
 
 void Shader::use() const { glUseProgram(program); }
 
+void Shader::setUniform1ui(const GLint& loc, const GLuint& val) const {
+  use();
+  glUniform1ui(loc, val);
+}
+
 void Shader::setUniform1i(const std::string& name, const GLint& val) const {
   use();
   glUniform1i(glGetUniformLocation(program, name.c_str()), val);
@@ -94,7 +100,7 @@ void Shader::setUniform1i(const std::string& name, const GLint& val) const {
 
 void Shader::setUniform1ui(const std::string& name, const GLuint& val) const {
   use();
-  glUniform1ui(glGetUniformLocation(program, name.c_str()), val);
+  setUniform1ui(glGetUniformLocation(program, name.c_str()), val);
 }
 
 void Shader::setUniform2ui(const std::string& name, const uvec2& v) const {
@@ -111,6 +117,8 @@ void Shader::setUniform3f(const std::string& name, const vec3& v) const {
   use();
   glUniform3f(glGetUniformLocation(program, name.c_str()), v.x, v.y, v.z);
 }
+
+void Shader::setUniformMatrix4f(const GLint& loc, const mat4& m) const { use(); glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(m)); }
 
 void Shader::setUniformTextureUInt(const std::string& name, const GLuint& unit) const { setUniform1ui(name, unit); }
 void Shader::setUniformTextureInt(const std::string& name, const GLint& unit) const { setUniform1i(name, unit); }

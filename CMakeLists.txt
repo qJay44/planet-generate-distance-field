@@ -61,5 +61,5 @@ target_link_directories(${PROJECT_NAME} PUBLIC
   ${LIBTIFF_PATH}/lib
 )
 
-target_link_libraries(${PROJECT_NAME} glfw3 glm libGLAD libtiff)
+target_link_libraries(${PROJECT_NAME} glfw3 libGLAD libtiff glm)
 
