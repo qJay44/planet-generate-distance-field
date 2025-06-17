@@ -115,23 +115,25 @@ void genMask(const fspath &path0, const fspath &path1) {
   glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
   status::end(true);
 
+  image2D img;
   byte* pixels = new byte[texSize.x * texSize.y];
   for (size_t i = 0; i < 2; i++) {
-    std::string name = std::format("mask{}.png", i);
+    std::string name = std::format("mask{}_{}.png", texSize.x * 2, i);
     status::start("Saving", name);
     glGetTextureSubImage(texMask, 0, 0, 0, i, texSize.x, texSize.y, 1, GL_RED, GL_UNSIGNED_BYTE, texSize.x * texSize.y, pixels);
 
-    image2D img;
     img.path = name;
     img.w = static_cast<int>(texSize.x);
     img.h = static_cast<int>(texSize.y);
     img.channels = 1;
     img.pixels = pixels;
     img.write(false);
-    delete[] (byte*)img.pixels;
 
     status::end(true);
   }
+
+  delete[] (byte*)img.pixels;
+  img.pixels = nullptr;
 }
 
 void genDistanceField(const fspath& path0, const fspath& path1, const GLenum& internalFormat) {

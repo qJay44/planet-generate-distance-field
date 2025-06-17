@@ -58,6 +58,7 @@ int main() {
   glDebugMessageCallback(MessageCallback, 0);
 
   // generator::genMask("pre_mask0.png", "pre_mask1.png");
+  // generator::genMask("bathymetry21600_0.tif", "bathymetry21600_1.tif");
   // generator::genDistanceField("mask2560_0.png", "mask2560_1.png", GL_R16UI);
   generator::genDistanceField("mask21600_0.png", "mask21600_1.png", GL_R16UI);
 
